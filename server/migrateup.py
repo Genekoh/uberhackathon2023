@@ -8,14 +8,23 @@ c = conn.cursor()
 
 c.execute(
     """CREATE TABLE users (
-    username text,
-    first_name text,
-    last_name text,
+    userName text,
+    firstName text,
+    lastName text,
     email text,
     password blob,
     salary integer
     )"""
 )
+
+c.execute(
+    """CREATE TABLE sessions (
+	token TEXT PRIMARY KEY,
+	data BLOB NOT NULL,
+	expiry REAL NOT NULL
+)"""
+)
+c.execute("CREATE INDEX sessions_expiry_idx ON sessions(expiry)")
 
 salt = "$2b$12$gBL4O3YeTVAbNSviFoOl2e".encode()
 pass1 = "helloworld"
@@ -34,3 +43,4 @@ c.executemany("INSERT INTO users VALUES (?,?,?,?,?,?)", dummy_accounts)
 
 conn.commit()
 conn.close()
+print("Migrated up")
