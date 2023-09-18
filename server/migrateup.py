@@ -12,7 +12,7 @@ c.execute(
     firstName text,
     lastName text,
     email text,
-    password blob,
+    passwordHash blob,
     salary integer
     )"""
 )

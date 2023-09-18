@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -27,13 +29,13 @@ var (
 )
 
 type User struct {
-	Id        int64
-	UserName  string
-	FirstName string
-	LastName  string
-	Email     string
-	Password  []byte
-	Salary    int64
+	Id           int64
+	UserName     string
+	FirstName    string
+	LastName     string
+	Email        string
+	PasswordHash []byte
+	Salary       int64
 	// CreatedAt time.Time
 	// UpdatedAt time.Time
 }
@@ -64,7 +66,7 @@ func main() {
 	sessionManager = scs.New()
 	store := sqlite3store.New(db)
 	// sessionManager.Lifetime = 24 * time.Hour
-	sessionManager.Lifetime = 5 * time.Second
+	sessionManager.Lifetime = 10 * time.Minute
 	sessionManager.Cookie.Persist = true
 	sessionManager.Cookie.SameSite = http.SameSiteLaxMode
 	sessionManager.Store = store
@@ -91,32 +93,34 @@ func main() {
 	})
 
 	router.Get("/get", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(sessionManager.GetString(r.Context(), "mykey"))
+		u := sessionManager.GetString(r.Context(), "username")
+		fmt.Println("heres the cookie: " + u)
+		fmt.Println(r.Cookies())
+		if u == "" {
+			io.WriteString(w, "not authorized"+"\n"+sessionManager.GetString(r.Context(), "mykey"))
+		} else {
+			io.WriteString(w, "authorized as:\t"+u+"\n"+sessionManager.GetString(r.Context(), "mykey"))
+		}
+	})
 
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
+	router.Get("/signin", func(w http.ResponseWriter, r *http.Request) {
+		enc := json.NewEncoder(w)
 
-		rows, err := db.QueryContext(ctx, "select rowid, * from users")
-		defer rows.Close()
-
-		var (
-			username, firstName, lastName, email string
-			password                             []byte
-			userId, salary                       int64
-		)
-		res := []User{}
-		for rows.Next() {
-			err = rows.Scan(&userId, &username, &firstName, &lastName, &email, &password, &salary)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			newUser := User{userId, username, firstName, lastName, email, password, salary}
-			res = append(res, newUser)
+		// queries for user in database
+		user, err := getUserByEmail(r.Context(), "johndoe@gmail.com")
+		if errors.Is(err, sql.ErrNoRows) {
+			w.WriteHeader(http.StatusNotFound)
+			enc.Encode("{'ok': false}")
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode("{'ok': false}")
+			return
 		}
 
-		enc := json.NewEncoder(w)
-		enc.Encode(res)
+		sessionManager.Put(r.Context(), "username", user.UserName)
+		enc.Encode("{'ok': true}")
 	})
 
 	router.Get("/set/{smth}", func(w http.ResponseWriter, r *http.Request) {
@@ -124,43 +128,50 @@ func main() {
 		sessionManager.Put(r.Context(), "mykey", smth)
 
 		res := fmt.Sprintf("Put %v into session\n", smth)
-		w.Write([]byte(res))
+		io.WriteString(w, res)
 	})
 
 	router.Route("/accounts", func(r chi.Router) {
 		r.Post("/signin", func(w http.ResponseWriter, r *http.Request) {
 			enc := json.NewEncoder(w)
 
+			// decode body and check if json has required data
 			var credentials LoginCredentials
 			if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil {
 				fmt.Println("1:", err)
 				w.WriteHeader(http.StatusBadRequest)
-				enc.Encode("{'ok': false,}")
+				enc.Encode("{'ok': false}")
 				return
-			}
-			if credentials.Email == "" || credentials.Password == "" {
+			} else if credentials.Email == "" || credentials.Password == "" || len([]byte(credentials.Password)) > 72 {
 				fmt.Println("2:", err)
 				w.WriteHeader(http.StatusBadRequest)
-				enc.Encode("{'ok': false,}")
+				enc.Encode("{'ok': false}")
 				return
 			}
 
+			// queries for user in database
 			user, err := getUserByEmail(r.Context(), credentials.Email)
 			if errors.Is(err, sql.ErrNoRows) {
 				w.WriteHeader(http.StatusNotFound)
-				enc.Encode("{'ok': false,}")
+				enc.Encode("{'ok': false}")
 				return
 			}
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				enc.Encode("{'ok': false,}")
+				enc.Encode("{'ok': false}")
 				return
 			}
 
-			fmt.Printf("%+v\n", user)
+			// compare password and hash
+			err = bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(credentials.Password))
+			if err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				enc.Encode("{'ok': false}")
+				return
+			}
 
-			enc.Encode("{'ok': true,}")
-
+			sessionManager.Put(r.Context(), "username", user.UserName)
+			enc.Encode("{'ok': true}")
 		})
 
 		r.Post("/signup", func(w http.ResponseWriter, r *http.Request) {})
@@ -179,27 +190,27 @@ func main() {
 func getUserByUsername(ctx context.Context, userName string) (*User, error) {
 	var (
 		username, firstName, lastName, email string
-		password                             []byte
+		passwordHash                         []byte
 		userId, salary                       int64
 	)
 	row := db.QueryRowContext(ctx, "select rowid, * from users where userName = ?", userName)
-	if err := row.Scan(&userId, &username, &firstName, &lastName, &email, &password, &salary); err != nil {
+	if err := row.Scan(&userId, &username, &firstName, &lastName, &email, &passwordHash, &salary); err != nil {
 		return nil, err
 	}
 
-	return &User{userId, username, firstName, lastName, email, password, salary}, nil
+	return &User{userId, username, firstName, lastName, email, passwordHash, salary}, nil
 }
 
 func getUserByEmail(ctx context.Context, emailQuery string) (*User, error) {
 	var (
 		username, firstName, lastName, email string
-		password                             []byte
+		passwordHash                         []byte
 		userId, salary                       int64
 	)
 	row := db.QueryRowContext(ctx, "select rowid, * from users where email = ?", emailQuery)
-	if err := row.Scan(&userId, &username, &firstName, &lastName, &email, &password, &salary); err != nil {
+	if err := row.Scan(&userId, &username, &firstName, &lastName, &email, &passwordHash, &salary); err != nil {
 		return nil, err
 	}
 
-	return &User{userId, username, firstName, lastName, email, password, salary}, nil
+	return &User{userId, username, firstName, lastName, email, passwordHash, salary}, nil
 }
