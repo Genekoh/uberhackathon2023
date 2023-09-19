@@ -35,6 +35,25 @@ type UpdateSalaryBody struct {
 	NewSalary int64 `json:"newSalary"`
 }
 
+type BookRideBody struct {
+	PickupLat float64 `json:"pickuplat"`
+	PickupLon float64 `json:"pickuplon"`
+	DestLat   float64 `json:"destlat"`
+	DestLon   float64 `json:"destlon"`
+}
+
+type Booking struct {
+	Id        int64
+	UserId    int64
+	CarpoolId int64
+	PickupLat float64
+	PickupLon float64
+	DestLat   float64
+	DestLon   float64
+	CreatedAt int64
+	ExpiresAt int64
+}
+
 type ListenCarpoolCredentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`

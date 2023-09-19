@@ -6,21 +6,27 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
+	"github.com/jftuga/geodist"
 	"github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
-	"golang.org/x/net/websocket"
 )
 
 const (
 	// distance radii are in km
 	pickupRadius = 5
 	destRadius   = 12
+
+	maxCarpoolSize = 4
+
+	carpoolTimeout = 10 * time.Minute
+	bookingTimeout = carpoolTimeout
 )
 
-var (
-	activeCarpools = map[string]string{}
-)
+// var (
+// 	activeCarpools = map[string]string{}
+// )
 
 func PostSignin(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
@@ -134,7 +140,6 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 			userInfo.Email,
 			userInfo.Salary,
 		}})
-	return
 }
 
 func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
@@ -164,28 +169,206 @@ func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 
 	j := map[string]any{"ok": false}
 	enc.Encode(j)
-	return
 }
 
 func PostBookRide(w http.ResponseWriter, r *http.Request) {
-	// enc := json.NewEncoder(w)
+	enc := json.NewEncoder(w)
 
-	//	get all bookings that are up to date and have similar
+	username := sessionManager.GetString(r.Context(), "username")
+	if username == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		enc.Encode(map[string]any{"ok": false})
+		return
+	}
+
+	var brBody BookRideBody
+	if err := json.NewDecoder(r.Body).Decode(&brBody); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		enc.Encode(map[string]any{"ok": false})
+		return
+	}
+
+	// get user id
+	var reqUserid int64
+	row := db.QueryRowContext(r.Context(), "SELECT rowid FROM users WHERE username = ?", username)
+	err := row.Scan(&reqUserid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			w.WriteHeader(http.StatusBadRequest)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		enc.Encode(map[string]any{"ok": false})
+		return
+	}
+
+	//	get all bookings that are up to date and have similar distances(10min = 600s)
+	curtime := time.Now()
+
+	bookingsNow := []Booking{}
+	var (
+		rowid, userid, carpoolid, createdAt, expiresAt int64
+		pickuplat, pickuplon, destlat, destlon         float64
+	)
+	rows, err := db.QueryContext(r.Context(), "SELECT rowid, * FROM bookings WHERE ? < expiresAt", curtime.Unix())
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		enc.Encode(map[string]any{"ok": false})
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err = rows.Scan(
+			&rowid,
+			&userid,
+			&carpoolid,
+			&pickuplat,
+			&pickuplon,
+			&destlat,
+			&destlon,
+			&createdAt,
+			&expiresAt,
+		); err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		if userid == reqUserid {
+			w.WriteHeader(http.StatusConflict)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		bookingsNow = append(bookingsNow, Booking{
+			rowid,
+			userid,
+			carpoolid,
+			pickuplat,
+			pickuplon,
+			destlat,
+			destlon,
+			createdAt,
+			expiresAt,
+		})
+
+	}
+
+	nearBookings := []Booking{}
+	curPickupPos := geodist.Coord{Lat: brBody.PickupLat, Lon: brBody.PickupLon}
+	curDestPos := geodist.Coord{Lat: brBody.DestLat, Lon: brBody.DestLon}
+	for _, b := range bookingsNow {
+		nPickupPos := geodist.Coord{Lat: b.PickupLat, Lon: b.PickupLon}
+		_, pickUpDist, err := geodist.VincentyDistance(curPickupPos, nPickupPos)
+		if err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		nDestPos := geodist.Coord{Lat: b.DestLat, Lon: b.DestLon}
+		_, destDist, err := geodist.VincentyDistance(curDestPos, nDestPos)
+		if err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		if pickUpDist <= pickupRadius && destDist <= destRadius {
+			nearBookings = append(nearBookings, b)
+		}
+
+	}
 
 	// check all carpools from bookings to check if it isn't full
+	carpoolIds := map[int64]struct{}{}
+	for _, b := range nearBookings {
+		carpoolIds[b.CarpoolId] = struct{}{}
+	}
+
+	var chosenCarpoolId int64 = -1
+	var size int64
+	for id := range carpoolIds {
+		row = db.QueryRowContext(
+			r.Context(),
+			"SELECT size FROM carpools WHERE rowid = ?",
+			id,
+		)
+		if err := row.Scan(&size); err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		if size < maxCarpoolSize {
+			chosenCarpoolId = 0
+			break
+		}
+	}
+
+	if chosenCarpoolId == -1 {
+		res, err := db.ExecContext(
+			r.Context(),
+			"INSERT INTO carpools VALUES (?,?,?)",
+			curtime.Unix(),
+			curtime.Add(carpoolTimeout).Unix(),
+			1,
+		)
+		if err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+
+		x, err := res.LastInsertId()
+		if err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			enc.Encode(map[string]any{"ok": false})
+			return
+		}
+		chosenCarpoolId = x
+	}
 
 	// create a booking record
-
-}
-
-func WsListenCarpool(ws *websocket.Conn) {
-	var cred ListenCarpoolCredentials
-	err := json.NewDecoder(ws).Decode(&cred)
+	_, err = db.ExecContext(
+		r.Context(),
+		"INSERT INTO bookings VALUES (?,?,?,?,?,?,?,?)",
+		reqUserid,
+		chosenCarpoolId,
+		curPickupPos.Lat,
+		curPickupPos.Lon,
+		curDestPos.Lat,
+		curDestPos.Lon,
+		curtime.Unix(),
+		curtime.Add(carpoolTimeout).Unix(),
+	)
 	if err != nil {
-		log.Printf("error reading ws credentials: %v", err)
-	}
-	if !cred.CheckFilled() {
-		log.Println("empty credentials")
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		enc.Encode(map[string]any{"ok": false})
+		return
 	}
 
+	enc.Encode(map[string]any{"ok": true})
 }
+
+// func WsListenCarpool(ws *websocket.Conn) {
+// 	var cred ListenCarpoolCredentials
+// 	err := json.NewDecoder(ws).Decode(&cred)
+// 	if err != nil {
+// 		log.Printf("error reading ws credentials: %v", err)
+// 	}
+// 	if !cred.CheckFilled() {
+// 		log.Println("empty credentials")
+// 	}
+
+// }

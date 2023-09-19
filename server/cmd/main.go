@@ -9,7 +9,6 @@ import (
 	"github.com/alexedwards/scs/sqlite3store"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/net/websocket"
 )
 
 const (
@@ -62,7 +61,7 @@ func main() {
 
 	router.Post("/book-ride", PostBookRide)
 
-	router.Handle("/listen-carpool", websocket.Handler(WsListenCarpool))
+	// router.Handle("/listen-carpool", websocket.Handler(WsListenCarpool))
 
 	server := http.Server{
 		Addr:    port,

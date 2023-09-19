@@ -41,8 +41,8 @@ c.execute("CREATE INDEX sessions_expiry_idx ON sessions(expiry)")
 # }
 c.execute(
     """CREATE TABLE carpools (
-    createdAt TEXT,
-    expiresAt TEXT,
+    createdAt INTEGER,
+    expiresAt INTEGER,
     size INTEGER
     )"""
 )
@@ -55,8 +55,8 @@ c.execute(
     pickuplon REAL,
     destlat REAL,
     destlon REAL,
-    createdAt TEXT,
-    expiresAt TEXT,
+    createdAt INTEGER,
+    expiresAt INTEGER,
     FOREIGN KEY(userid) REFERENCES users(rowid)
     FOREIGN KEY(carpoolid) REFERENCES carpools(rowid)
 )"""
