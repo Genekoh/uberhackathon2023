@@ -110,7 +110,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 
 	_, err = db.ExecContext(
 		r.Context(),
-		"INSERT INTO user (username, firstname, lastname, email, passwordhash, salary, accountlevel) VALUES (?,?,?,?,?,?,?)",
+		"INSERT INTO users (username, firstname, lastname, email, passwordhash, salary, accountlevel) VALUES (?,?,?,?,?,?,?)",
 		userInfo.Username,
 		userInfo.Firstname,
 		userInfo.LastName,

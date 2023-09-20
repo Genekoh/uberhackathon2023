@@ -1,29 +1,21 @@
-# uberhackathon2023-democlient
+# HOW TO SETUP
 
-This template should help get you started developing with Vue 3 in Vite.
+#### This project uses Vue.js. Please make sure to have npm installed.
 
-## Recommended IDE Setup
+First, while in the web directory (this directory) run:
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur) + [TypeScript Vue Plugin (Volar)](https://marketplace.visualstudio.com/items?itemName=Vue.vscode-typescript-vue-plugin).
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vitejs.dev/config/).
-
-## Project Setup
-
-```sh
+```
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+to fetch all dependencies.
 
-```sh
+Then run
+
+```
 npm run dev
 ```
 
-### Compile and Minify for Production
+to start up the development server for the client.
 
-```sh
-npm run build
-```
+By default, this should be running on localhost:5173
