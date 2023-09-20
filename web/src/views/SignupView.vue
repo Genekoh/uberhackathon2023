@@ -1,3 +1,3 @@
-<template>signup view</template>
+<template></template>
 
 <script></script>

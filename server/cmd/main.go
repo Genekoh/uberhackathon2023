@@ -10,6 +10,7 @@ import (
 	"github.com/alexedwards/scs/sqlite3store"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/cors"
 )
 
 const (
@@ -72,9 +73,13 @@ func main() {
 
 	carpoolsCleanup(context.Background(), carpoolTimeout)
 
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://127.0.0.1:5173", "http://foo.com:8080"},
+		AllowCredentials: true,
+	})
 	server := http.Server{
 		Addr:    port,
-		Handler: router,
+		Handler: c.Handler(router),
 	}
 	log.Printf("Starting server on port %s\n", port)
 	server.ListenAndServe()
@@ -86,7 +91,7 @@ func carpoolsCleanup(ctx context.Context, d time.Duration) {
 	go func() {
 		for {
 			select {
-			case _ = <-ticker.C:
+			case <-ticker.C:
 				log.Println("cleaning up carpools")
 				_, err := db.Exec("DELETE FROM carpools WHERE ? > expiresAt", time.Now().Unix())
 				if err != nil {

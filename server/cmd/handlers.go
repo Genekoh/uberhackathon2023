@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -169,8 +170,7 @@ func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	j := map[string]any{"ok": false}
-	enc.Encode(j)
+	enc.Encode(map[string]any{"ok": false})
 }
 
 func PostBookRide(w http.ResponseWriter, r *http.Request) {
@@ -179,30 +179,30 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	username := sessionManager.GetString(r.Context(), "username")
 	if username == "" {
 		w.WriteHeader(http.StatusUnauthorized)
-		enc.Encode(map[string]any{"ok": false})
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
 		return
 	}
 
 	var brBody BookRideBody
 	if err := json.NewDecoder(r.Body).Decode(&brBody); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		enc.Encode(map[string]any{"ok": false})
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
 		return
 	}
 
 	// get user id
-	var reqUserid int64
-	row := db.QueryRowContext(r.Context(), "SELECT id FROM users WHERE username = ?", username)
-	err := row.Scan(&reqUserid)
+	var reqUserid, salary int64
+	row := db.QueryRowContext(r.Context(), "SELECT id, salary FROM users WHERE username = ?", username)
+	err := row.Scan(&reqUserid, &salary)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusBadRequest)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
-		enc.Encode(map[string]any{"ok": false})
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
 		return
 	}
 
@@ -212,13 +212,13 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	bookingsNow := []Booking{}
 	var (
 		rowid, userid, carpoolid, createdAt, expiresAt int64
-		pickuplat, pickuplon, destlat, destlon         float64
+		pickuplat, pickuplon, destlat, destlon, cost   float64
 	)
 	rows, err := db.QueryContext(r.Context(), "SELECT rowid, * FROM bookings WHERE ? < expiresAt", curtime.Unix())
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
-		enc.Encode(map[string]any{"ok": false})
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
 		return
 	}
 	defer rows.Close()
@@ -233,16 +233,17 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 			&destlon,
 			&createdAt,
 			&expiresAt,
+			&cost,
 		); err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
 		if userid == reqUserid {
 			w.WriteHeader(http.StatusConflict)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
@@ -269,7 +270,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
@@ -278,7 +279,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
@@ -305,7 +306,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		if err := row.Scan(&size); err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
@@ -326,7 +327,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 
@@ -334,11 +335,20 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			enc.Encode(map[string]any{"ok": false})
+			enc.Encode(map[string]any{"ok": false, "cost": nil})
 			return
 		}
 		chosenCarpoolId = x
 	}
+
+	_, dist, err := geodist.VincentyDistance(curPickupPos, curDestPos)
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
+		return
+	}
+	cost = calcCost(dist, salary)
 
 	// create a booking record
 	_, err = db.ExecContext(
@@ -351,8 +361,9 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 			destlat, 
 			destlon, 
 			createdAt, 
-			expiresAt
-		) VALUES (?,?,?,?,?,?,?,?)`,
+			expiresAt,
+			cost
+		) VALUES (?,?,?,?,?,?,?,?,?)`,
 		reqUserid,
 		chosenCarpoolId,
 		curPickupPos.Lat,
@@ -361,15 +372,17 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		curDestPos.Lon,
 		curtime.Unix(),
 		curtime.Add(carpoolTimeout).Unix(),
+		cost,
 	)
 	if err != nil {
+		fmt.Println("hi")
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
-		enc.Encode(map[string]any{"ok": false})
+		enc.Encode(map[string]any{"ok": false, "cost": nil})
 		return
 	}
 
-	enc.Encode(map[string]any{"ok": true})
+	enc.Encode(map[string]any{"ok": true, "cost": cost})
 }
 
 // func WsListenCarpool(ws *websocket.Conn) {
@@ -383,3 +396,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 // 	}
 
 // }
+
+func calcCost(dist float64, salary int64) float64 {
+	return dist*5 + (0.0001 * float64(salary))
+}

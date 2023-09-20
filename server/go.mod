@@ -1,6 +1,6 @@
 module github.com/Genekoh/uberhackathon2023/server
 
-go 1.21.0
+go 1.23
 
 require (
 	github.com/alexedwards/scs/sqlite3store v0.0.0-20230902070821-95fa2ac9d520
@@ -14,4 +14,5 @@ require (
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/jftuga/geodist v1.0.0 // indirect
+	github.com/rs/cors v1.10.0 // indirect
 )

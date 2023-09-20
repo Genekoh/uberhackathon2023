@@ -59,6 +59,7 @@ c.execute(
     destlon REAL,
     createdAt INTEGER,
     expiresAt INTEGER,
+    cost REAL,
     FOREIGN KEY(userid) REFERENCES users(id) ON DELETE CASCADE
     FOREIGN KEY(carpoolid) REFERENCES carpools(id) ON DELETE CASCADE
 )"""

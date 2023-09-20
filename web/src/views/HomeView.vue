@@ -1,17 +1,37 @@
 <template>
-  <header>
+  <header v-if="true">
     <h2 class="sub-header"><b>Lets Go Places</b></h2>
 
     <div class="car-select">
       <div class="column">
         <h3>FROM:</h3>
-        <input type="text" placeholder="Enter Latitude" name="q" />
-        <input type="text" placeholder="Enter Longitude" name="q" />
+        <input
+          type="text"
+          placeholder="Enter Latitude"
+          name="q"
+          v-model="pickupLatitude"
+        />
+        <input
+          type="text"
+          placeholder="Enter Longitude"
+          name="q"
+          v-model="pickupLongtitude"
+        />
       </div>
       <div class="column">
         <h3>TO:</h3>
-        <input type="text" placeholder="Enter Latitude" name="q" />
-        <input type="text" placeholder="Enter Longitude" name="q" />
+        <input
+          type="text"
+          placeholder="Enter Latitude"
+          name="q"
+          v-model="destLatitude"
+        />
+        <input
+          type="text"
+          placeholder="Enter Longitude"
+          name="q"
+          v-model="destLongtitude"
+        />
       </div>
       <div class="column">
         <h3>Type:</h3>
@@ -45,7 +65,7 @@
         </select>
       </div>
 
-      <button type="submit" class="GO-submit">GO</button>
+      <button type="buttom" class="GO-submit" @click="submitForm">GO</button>
     </div>
   </header>
   <div class="stuff">
@@ -77,7 +97,41 @@
   </div>
 </template>
 
-<script></script>
+<script>
+import axios from "axios";
+
+export default {
+  data() {
+    return {
+      pickupLatitude: 0,
+      pickupLongtitude: 0,
+      destLatitude: 0,
+      destLongtitude: 0,
+    };
+  },
+  methods: {
+    submitForm() {
+      axios.post(
+        `http://127.0.0.1:8080/book-ride`,
+        {
+          pickuplat: this.pickupLatitude,
+          pickuplon: this.pickupLongtitude,
+          destlat: this.destLatitude,
+          destlon: this.destLongtitude,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+
+      this.pickupLatitude = 0;
+      this.pickupLongtitude = 0;
+      this.destLatitude = 0;
+      this.destLongtitude = 0;
+    },
+  },
+};
+</script>
 
 <style scoped>
 header {
@@ -154,7 +208,7 @@ header {
 }
 
 .stuff {
-  padding-top: 3.5rem;
+  padding-top: 5rem;
   height: 100%;
   display: flex;
   align-content: center;
