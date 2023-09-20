@@ -108,6 +108,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// insert new user row into users table
 	_, err = db.ExecContext(
 		r.Context(),
 		"INSERT INTO users (username, firstname, lastname, email, passwordhash, salary, accountlevel) VALUES (?,?,?,?,?,?,?)",
@@ -133,6 +134,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// put session cookie and return response
 	sessionManager.Put(r.Context(), "username", userInfo.Username)
 	enc.Encode(map[string]any{
 		"ok": true,
@@ -148,6 +150,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 
+	// check session cookie to see if user is authorized
 	username := sessionManager.GetString(r.Context(), "username")
 	if username == "" {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -155,6 +158,7 @@ func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// decodes request body to get new updated salary
 	var u UpdateSalaryBody
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -162,6 +166,7 @@ func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// update new salary
 	_, err := db.ExecContext(r.Context(), "UPDATE users SET salary = ? WHERE username = ?", u.NewSalary, username)
 	if err != nil {
 		log.Println(err)
@@ -170,12 +175,14 @@ func PostUpdateSalary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// return response
 	enc.Encode(map[string]any{"ok": false})
 }
 
 func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 
+	// check session cookie to see if user is authorized
 	username := sessionManager.GetString(r.Context(), "username")
 	if username == "" {
 		w.WriteHeader(http.StatusUnauthorized)
