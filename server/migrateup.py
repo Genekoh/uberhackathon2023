@@ -8,6 +8,7 @@ c = conn.cursor()
 
 c.execute(
     """CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     firstname TEXT,
     lastname TEXT,
@@ -41,15 +42,16 @@ c.execute("CREATE INDEX sessions_expiry_idx ON sessions(expiry)")
 # }
 c.execute(
     """CREATE TABLE carpools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     createdAt INTEGER,
     expiresAt INTEGER,
     size INTEGER
-    )"""
+  )"""
 )
 
 c.execute(
     """CREATE TABLE bookings (
-	userid INTEGER,
+    userid INTEGER ,
     carpoolid INTEGER,
     pickuplat REAL,
     pickuplon REAL,
@@ -57,8 +59,8 @@ c.execute(
     destlon REAL,
     createdAt INTEGER,
     expiresAt INTEGER,
-    FOREIGN KEY(userid) REFERENCES users(rowid)
-    FOREIGN KEY(carpoolid) REFERENCES carpools(rowid)
+    FOREIGN KEY(userid) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY(carpoolid) REFERENCES carpools(id) ON DELETE CASCADE
 )"""
 )
 
@@ -72,7 +74,10 @@ dummy_accounts = [
     ("djohnoe", "John", "Doe", "johndoe@gmail.com", hash1, 1000, 0),
     ("janeDOE", "Jane", "Doe", "jane@gmail.com", hash2, 90000, 1),
 ]
-c.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?)", dummy_accounts)
+c.executemany(
+    "INSERT INTO users (username, firstname, lastname, email, passwordhash, salary, accountlevel) VALUES (?,?,?,?,?,?,?)",
+    dummy_accounts,
+)
 ###
 
 conn.commit()

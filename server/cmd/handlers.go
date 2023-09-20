@@ -20,8 +20,9 @@ const (
 
 	maxCarpoolSize = 4
 
-	carpoolTimeout = 10 * time.Minute
-	bookingTimeout = carpoolTimeout
+	bookingTimeout = 40 * time.Second
+	// bookingTimeout = 10 * time.Minute
+	carpoolTimeout = bookingTimeout
 )
 
 // var (
@@ -78,7 +79,7 @@ func PostSignin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionManager.Put(r.Context(), "username", username)
-	enc.Encode(map[string]any{"ok": false, "user": UserInfo{username, firstname, lastname, email, salary}})
+	enc.Encode(map[string]any{"ok": true, "user": UserInfo{username, firstname, lastname, email, salary}})
 }
 
 func PostSignup(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +109,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 
 	_, err = db.ExecContext(
 		r.Context(),
-		"INSERT INTO users VALUES (?,?,?,?,?,?,?)",
+		"INSERT INTO user (username, firstname, lastname, email, passwordhash, salary, accountlevel) VALUES (?,?,?,?,?,?,?)",
 		userInfo.Username,
 		userInfo.Firstname,
 		userInfo.LastName,
@@ -131,6 +132,7 @@ func PostSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionManager.Put(r.Context(), "username", userInfo.Username)
 	enc.Encode(map[string]any{
 		"ok": true,
 		"user": UserInfo{
@@ -190,7 +192,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 
 	// get user id
 	var reqUserid int64
-	row := db.QueryRowContext(r.Context(), "SELECT rowid FROM users WHERE username = ?", username)
+	row := db.QueryRowContext(r.Context(), "SELECT id FROM users WHERE username = ?", username)
 	err := row.Scan(&reqUserid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -297,7 +299,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	for id := range carpoolIds {
 		row = db.QueryRowContext(
 			r.Context(),
-			"SELECT size FROM carpools WHERE rowid = ?",
+			"SELECT size FROM carpools WHERE id = ?",
 			id,
 		)
 		if err := row.Scan(&size); err != nil {
@@ -308,7 +310,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if size < maxCarpoolSize {
-			chosenCarpoolId = 0
+			chosenCarpoolId = id
 			break
 		}
 	}
@@ -316,7 +318,7 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	if chosenCarpoolId == -1 {
 		res, err := db.ExecContext(
 			r.Context(),
-			"INSERT INTO carpools VALUES (?,?,?)",
+			"INSERT INTO carpools (createdAt, expiresAt, size) VALUES (?,?,?)",
 			curtime.Unix(),
 			curtime.Add(carpoolTimeout).Unix(),
 			1,
@@ -341,7 +343,16 @@ func PostBookRide(w http.ResponseWriter, r *http.Request) {
 	// create a booking record
 	_, err = db.ExecContext(
 		r.Context(),
-		"INSERT INTO bookings VALUES (?,?,?,?,?,?,?,?)",
+		`INSERT INTO bookings (
+			userid,
+			carpoolid,
+			pickuplat, 
+			pickuplon, 
+			destlat, 
+			destlon, 
+			createdAt, 
+			expiresAt
+		) VALUES (?,?,?,?,?,?,?,?)`,
 		reqUserid,
 		chosenCarpoolId,
 		curPickupPos.Lat,

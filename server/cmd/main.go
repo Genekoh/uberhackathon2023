@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -38,6 +39,12 @@ func main() {
 		log.Fatalf("Cannot ping database: %v", err)
 	}
 	log.Println("Pinged database")
+	// c.execute("PRAGMA foreign_keys = ON")
+
+	_, err = db.Exec("PRAGMA foreign_keys = ON")
+	if err != nil {
+		log.Fatalf("failed to turn foreign_keys on: %v", err)
+	}
 
 	sessionManager = scs.New()
 	store := sqlite3store.New(db)
@@ -63,10 +70,29 @@ func main() {
 
 	// router.Handle("/listen-carpool", websocket.Handler(WsListenCarpool))
 
+	carpoolsCleanup(context.Background(), carpoolTimeout)
+
 	server := http.Server{
 		Addr:    port,
 		Handler: router,
 	}
 	log.Printf("Starting server on port %s\n", port)
 	server.ListenAndServe()
+}
+
+func carpoolsCleanup(ctx context.Context, d time.Duration) {
+	ticker := time.NewTicker(d)
+
+	go func() {
+		for {
+			select {
+			case _ = <-ticker.C:
+				log.Println("cleaning up carpools")
+				_, err := db.Exec("DELETE FROM carpools WHERE ? > expiresAt", time.Now().Unix())
+				if err != nil {
+					log.Printf("carpools cleanup error: %v\n", err)
+				}
+			}
+		}
+	}()
 }

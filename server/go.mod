@@ -1,6 +1,6 @@
 module github.com/Genekoh/uberhackathon2023/server
 
-go 1.23
+go 1.21.0
 
 require (
 	github.com/alexedwards/scs/sqlite3store v0.0.0-20230902070821-95fa2ac9d520
